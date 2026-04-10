@@ -73,4 +73,71 @@ area_mm2 = np.pi * (r_mm**2)
 flow_ratio = area_mm2 / np.sum(area_mm2)
 Q_mean_vessels = (Q_mean_total_cm3_s * 1e-6) * flow_ratio
 
-#
+# 脉搏波速度 c 和 RCR 参数计算
+c_pwv = 13.3 / ((r_mm/1000*2000)**0.3)
+Rt = MAP_pa / Q_mean_vessels
+R1 = (rho_blood * c_pwv) / (area_mm2 * 1e-6)
+R2 = Rt - R1
+C = 1.79 / Rt
+
+# 转换为硬件尺寸 (Hagen-Poiseuille)
+L1 = (R1 * np.pi * (d_L1/2)**4) / (8 * mu)
+L2 = (R2 * np.pi * (d_L2/2)**4) / (8 * mu)
+h_air = (C * P_atm) / (np.pi * (d_cavity/2)**2)
+
+# --- 结果展示表格 ---
+st.header("📊 计算结果报表")
+results_df = pd.DataFrame({
+    "血管": vessel_labels,
+    "R1 (10^8)": R1 / 1e8,
+    "R2 (10^8)": R2 / 1e8,
+    "C (10^-9)": C / 1e-9,
+    "L1长度(mm)": L1 * 1000,
+    "L2长度(mm)": L2 * 1000,
+    "气腔高度(mm)": h_air * 1000
+})
+st.dataframe(results_df.style.format(precision=3), use_container_width=True)
+
+st.markdown("---")
+
+# --- 动态压力模拟区域 ---
+st.header(f"📈 动态压力模拟 ({unit_mode})")
+
+selected_vessel = st.selectbox("选择要观察的血管波形", vessel_labels)
+v_idx = list(vessel_labels).index(selected_vessel)
+
+# 模拟时域设置
+T, fs = 0.8, 200
+t = np.linspace(0, T, fs)
+dt = T / fs
+
+# 使用选中血管的流量参数 (半正弦波喷射模拟)
+ts = 0.3 * T
+Q_t = np.where(t < ts, (Q_mean_vessels[v_idx] * np.pi / (2 * ts / T)) * np.sin(np.pi * t / ts), 0)
+
+# 数值求解微分方程 (欧拉法)
+P_sim = np.zeros(fs)
+P_sim[0] = Pd_pa
+for i in range(fs-1):
+    # 3-element Windkessel 控制方程：修正了括号配对
+    dp_dt = (Q_t[i] / C[v_idx]) - (P_sim[i] - Q_t[i] * R1[v_idx]) / (R2[v_idx] * C[v_idx])
+    P_sim[i+1] = P_sim[i] + dp_dt * dt
+
+# 绘图数据准备
+plot_df = pd.DataFrame({
+    "时间 (s)": t,
+    f"压力 ({unit_mode})": from_pa(P_sim)
+}).set_index("时间 (s)")
+
+col_chart, col_info = st.columns([2, 1])
+with col_chart:
+    st.line_chart(plot_df)
+with col_info:
+    st.write(f"**当前观察对象:** {selected_vessel}")
+    st.metric(f"模拟峰值压力 ({unit_mode})", f"{from_pa(np.max(P_sim)):.2f}")
+    st.metric(f"模拟舒张末压 ({unit_mode})", f"{from_pa(P_sim[-1]):.2f}")
+    st.write(f"**分支平均流量:** {Q_mean_vessels[v_idx]*1e6:.2f} cm³/s")
+
+# 下载数据按钮
+csv_data = results_df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button("📥 下载实验尺寸数据 (CSV)", csv_data, "windkessel_params.csv", "text/csv")
