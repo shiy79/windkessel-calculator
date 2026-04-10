@@ -33,6 +33,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("☕ 赞助与支持")
 st.sidebar.write("如果您觉得本工具有助于您的科研工作，欢迎赞助作者以维持服务器运行！")
 try:
+    # 尝试加载 GitHub 仓库中的图片
     st.sidebar.image("donate.png", caption="扫码赞助作者", use_container_width=True)
 except:
     st.sidebar.info("🙏 感谢您的支持！")
@@ -72,45 +73,4 @@ area_mm2 = np.pi * (r_mm**2)
 flow_ratio = area_mm2 / np.sum(area_mm2)
 Q_mean_vessels = (Q_mean_total_cm3_s * 1e-6) * flow_ratio
 
-c_pwv = 13.3 / ((r_mm/1000*2000)**0.3)
-Rt = MAP_pa / Q_mean_vessels
-R1 = (rho_blood * c_pwv) / (area_mm2 * 1e-6)
-R2 = Rt - R1
-C = 1.79 / Rt
-
-L1 = (R1 * np.pi * (d_L1/2)**4) / (8 * mu)
-L2 = (R2 * np.pi * (d_L2/2)**4) / (8 * mu)
-h_air = (C * P_atm) / (np.pi * (d_cavity/2)**2)
-
-# --- 结果展示表格 ---
-st.header("📊 计算结果报表")
-results_df = pd.DataFrame({
-    "血管": vessel_labels,
-    "R1 (10^8)": R1 / 1e8,
-    "R2 (10^8)": R2 / 1e8,
-    "C (10^-9)": C / 1e-9,
-    "L1长度(mm)": L1 * 1000,
-    "L2长度(mm)": L2 * 1000,
-    "气腔高度(mm)": h_air * 1000
-})
-st.dataframe(results_df.style.format(precision=3), use_container_width=True)
-
-st.markdown("---")
-
-# --- 动态压力模拟区域 ---
-st.header(f"📈 动态压力模拟 ({unit_mode})")
-
-selected_vessel = st.selectbox("选择要观察的血管波形", vessel_labels)
-v_idx = list(vessel_labels).index(selected_vessel)
-
-T, fs = 0.8, 200
-t = np.linspace(0, T, fs)
-dt = T / fs
-
-ts = 0.3 * T
-Q_t = np.where(t < ts, (Q_mean_vessels[v_idx] * np.pi / (2*ts/T)) * np.sin(np.pi * t / ts), 0)
-
-P_sim = np.zeros(fs)
-P_sim[0] = Pd_pa
-for i in range(fs-1):
-    dp_dt = (Q_t[i]/C[v_idx]) - (P_sim[i] - Q_t[i]*R1[v_idx])/(R2[v_
+#
