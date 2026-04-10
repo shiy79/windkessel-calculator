@@ -34,7 +34,7 @@ st.sidebar.subheader("☕ 赞助与支持")
 st.sidebar.write("如果您是正在从事血流动力学研究的医生或医学生，希望本工具有助于您的科研工作，路途漫长，还有同行人结伴。")
 try:
     # 尝试加载 GitHub 仓库中的图片
-    st.sidebar.image("donate.png", caption="扫码赞助作者", use_container_width=True)
+    st.sidebar.image("donate.png", caption="赞助全部用于：购买医学书籍 / 文献下载 / 服务器费用 不用于个人娱乐", use_container_width=True)
 except:
     st.sidebar.info("🙏 感谢您的支持！")
 
