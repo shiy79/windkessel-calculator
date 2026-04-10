@@ -31,7 +31,7 @@ d_cavity = st.sidebar.number_input("气腔内径 (mm)", value=55.0) / 1000
 # --- 捐助项 ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("☕ 赞助与支持")
-st.sidebar.write("如果您觉得本工具有助于您的科研工作，欢迎赞助作者以维持服务器运行！")
+st.sidebar.write("如果您是正在从事血流动力学研究的医生或医学生，希望本工具有助于您的科研工作，路途漫长，还有同行人结伴。")
 try:
     # 尝试加载 GitHub 仓库中的图片
     st.sidebar.image("donate.png", caption="扫码赞助作者", use_container_width=True)
