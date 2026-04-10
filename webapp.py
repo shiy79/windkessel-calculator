@@ -1,12 +1,9 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import cv2
-from PIL import Image
-from scipy.optimize import curve_fit
 
 # --- 网页配置 ---
-st.set_page_config(page_title="Windkessel 智慧建模系统", layout="wide")
+st.set_page_config(page_title="Windkessel 物理参数转换器", layout="wide")
 
 # --- 侧边栏：全局设置与捐助 ---
 st.sidebar.header("🌍 全局显示设置")
@@ -26,7 +23,7 @@ mu = st.sidebar.number_input("液体粘度 (Pa·s)", value=0.0040, format="%.4f"
 rho_blood = st.sidebar.number_input("液体密度 (kg/m³)", value=1040)
 P_atm = st.sidebar.number_input("大气压 (Pa)", value=101325)
 
-st.sidebar.header("📏 装置尺寸 (mm)")
+st.sidebar.header("📏 装置尺寸预设 (mm)")
 d_L1 = st.sidebar.number_input("细管 L1 内径 (mm)", value=5.0) / 1000
 d_L2 = st.sidebar.number_input("细管 L2 内径 (mm)", value=3.0) / 1000
 d_cavity = st.sidebar.number_input("气腔内径 (mm)", value=55.0) / 1000
@@ -36,89 +33,113 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("☕ 赞助与支持")
 st.sidebar.write("如果您觉得本工具有助于您的科研工作，欢迎赞助作者以维持服务器运行！")
 try:
+    # 确保 GitHub 仓库中有名为 donate.png 的图片
     st.sidebar.image("donate.png", caption="扫码赞助作者", use_container_width=True)
 except:
-    st.sidebar.warning("未检测到 donate.png，请确保图片已上传至 GitHub 仓库根目录。")
+    st.sidebar.info("🙏 感谢您的支持！")
 
-# --- 主界面标签页 ---
-tab1, tab2 = st.tabs(["📊 参数计算与模拟", "🖼️ 超声波形识别提取"])
+# --- 主界面 ---
+st.title("🩺 Windkessel RCR 参数至物理尺寸转换工具")
+st.markdown("---")
 
-# --- TAB 1: 核心计算与模拟 ---
-with tab1:
-    st.title("🩺 Windkessel RCR 参数至物理尺寸转换")
-    col1, col2 = st.columns([1, 1.5])
+col1, col2 = st.columns([1, 1.5])
 
-    with col1:
-        st.subheader(f"🩸 生理参数 ({unit_mode})")
-        default_pd = 10.9 if unit_mode == "kPa" else 81.7
-        default_ps = 16.7 if unit_mode == "kPa" else 125.3
-        Pd_input = st.number_input(f"舒张压 ({unit_mode})", value=default_pd)
-        Ps_input = st.number_input(f"收缩压 ({unit_mode})", value=default_ps)
-        Q_mean_total = st.number_input("总流量 (cm³/s)", value=97.72)
-
-    with col2:
-        st.subheader("📏 血管出口周长 (mm)")
-        v_names = ['BA', 'LCCA', 'LSA', 'CEL', 'SMA', 'RR', 'LR', 'RI', 'LI']
-        v_circ = [47.50, 18.27, 30.05, 23.06, 13.56, 9.57, 18.98, 26.20, 25.62]
-        df_in = pd.DataFrame({'血管名称': v_names, '周长(mm)': v_circ})
-        edited_df = st.data_editor(df_in, use_container_width=True, num_rows="dynamic")
-
-    # 计算逻辑
-    Pd_pa, Ps_pa = to_pa(Pd_input), to_pa(Ps_input)
-    MAP_pa = Pd_pa + (Ps_pa - Pd_pa) / 3
-    v_labels = edited_df['血管名称'].values
-    c_mm = edited_df['周长(mm)'].values
-    r_m = (c_mm / (2 * np.pi)) / 1000
-    area_m2 = np.pi * (r_m**2)
-    f_ratio = area_m2 / np.sum(area_m2)
-    Q_vessels = (Q_mean_total * 1e-6) * f_ratio
+with col1:
+    st.subheader(f"🩸 生理压力与总流量 ({unit_mode})")
+    # 根据单位动态设定默认值
+    default_pd = 10.9 if unit_mode == "kPa" else 81.7
+    default_ps = 16.7 if unit_mode == "kPa" else 125.3
     
-    # RCR 参数 (基于你之前的物理公式)
-    c_pwv = 13.3 / ((r_m*2000)**0.3) 
-    Rt = MAP_pa / Q_vessels
-    R1_vals = (rho_blood * c_pwv) / area_m2
-    R2_vals = Rt - R1_vals
-    C_vals = 1.79 / Rt
+    Pd_input = st.number_input(f"舒张压 ({unit_mode})", value=default_pd, step=0.1)
+    Ps_input = st.number_input(f"收缩压 ({unit_mode})", value=default_ps, step=0.1)
+    Q_mean_total_cm3_s = st.number_input("总流量 (cm³/s)", value=97.72)
 
-    # 硬件尺寸
-    L1_vals = (R1_vals * np.pi * (d_L1/2)**4) / (8 * mu)
-    L2_vals = (R2_vals * np.pi * (d_L2/2)**4) / (8 * mu)
-    h_vals = (C_vals * P_atm) / (np.pi * (d_cavity/2)**2)
+with col2:
+    st.subheader("📏 血管出口周长 (mm)")
+    vessel_names = ['BA', 'LCCA', 'LSA', 'CEL', 'SMA', 'RR', 'LR', 'RI', 'LI']
+    default_c = [47.50, 18.27, 30.05, 23.06, 13.56, 9.57, 18.98, 26.20, 25.62]
+    df_input = pd.DataFrame({'血管名称': vessel_names, '周长(mm)': default_c})
+    edited_df = st.data_editor(df_input, use_container_width=True, num_rows="dynamic")
 
-    st.header("📊 计算结果报表")
-    res_df = pd.DataFrame({
-        "血管": v_labels, "R1 (10^8)": R1_vals/1e8, "R2 (10^8)": R2_vals/1e8, "C (10^-9)": C_vals/1e-9,
-        "L1(mm)": L1_vals*1000, "L2(mm)": L2_vals*1000, "气腔高度(mm)": h_vals*1000
-    })
-    st.dataframe(res_df.style.format(precision=3), use_container_width=True)
+# --- 核心计算逻辑 ---
+# 1. 统一转为基础单位 Pa 进行计算
+Pd_pa = to_pa(Pd_input)
+Ps_pa = to_pa(Ps_input)
+MAP_pa = Pd_pa + (Ps_pa - Pd_pa) / 3
 
-    st.markdown("---")
-    st.header(f"📈 动态压力模拟 ({unit_mode})")
-    sel_v = st.selectbox("选择观察波形的血管", v_labels)
-    idx = list(v_labels).index(sel_v)
+vessel_labels = edited_df['血管名称'].values
+C_outlet_mm = edited_df['周长(mm)'].values
 
-    T, fs = 0.8, 200
-    t = np.linspace(0, T, fs)
-    dt = T/fs
-    ts = 0.3 * T
-    Q_t = np.where(t < ts, (Q_vessels[idx] * np.pi / (2*ts/T)) * np.sin(np.pi * t / ts), 0)
+# 2. 流量分配与 RCR 计算
+r_mm = C_outlet_mm / (2 * np.pi)
+area_mm2 = np.pi * (r_mm**2)
+flow_ratio = area_mm2 / np.sum(area_mm2)
+Q_mean_vessels = (Q_mean_total_cm3_s * 1e-6) * flow_ratio
 
-    P_sim = np.zeros(fs)
-    P_sim[0] = Pd_pa
-    for i in range(fs-1):
-        dp_dt = (Q_t[i]/C_vals[idx]) - (P_sim[i] - Q_t[i]*R1_vals[idx])/(R2_vals[idx]*C_vals[idx])
-        P_sim[i+1] = P_sim[i] + dp_dt * dt
+# 脉搏波速度 c 和 RCR 参数
+c_pwv = 13.3 / ((r_mm/1000*2000)**0.3) # 修正单位映射逻辑
+Rt = MAP_pa / Q_mean_vessels
+R1 = (rho_blood * c_pwv) / (area_mm2 * 1e-6)
+R2 = Rt - R1
+C = 1.79 / Rt
 
-    p_plot = pd.DataFrame({"时间 (s)": t, f"压力 ({unit_mode})": from_pa(P_sim)}).set_index("时间 (s)")
-    st.line_chart(p_plot)
-    st.metric(f"{sel_v} 峰值压力", f"{from_pa(np.max(P_sim)):.2f} {unit_mode}")
+# 3. 转换为硬件尺寸
+L1 = (R1 * np.pi * (d_L1/2)**4) / (8 * mu)
+L2 = (R2 * np.pi * (d_L2/2)**4) / (8 * mu)
+h_air = (C * P_atm) / (np.pi * (d_cavity/2)**2)
 
-# --- TAB 2: 图像识别 ---
-with tab2:
-    st.header("🖼️ 超声波形自动识别提取")
-    up_file = st.file_uploader("上传超声流量图", type=["jpg", "png", "jpeg"])
-    if up_file:
-        img = Image.open(up_file)
-        st.image(img, caption="原始图像", width=600)
-        st.info("识别与拟合逻辑已激活。请根据图像起伏调整参数。")
-        # 此处保留你之前的 OpenCV 识别逻辑代码即可...
+# --- 结果展示表格 ---
+st.header("📊 计算结果报表")
+results_df = pd.DataFrame({
+    "血管": vessel_labels,
+    "R1 (10^8)": R1 / 1e8,
+    "R2 (10^8)": R2 / 1e8,
+    "C (10^-9)": C / 1e-9,
+    "L1长度(mm)": L1 * 1000,
+    "L2长度(mm)": L2 * 1000,
+    "气腔高度(mm)": h_air * 1000
+})
+st.dataframe(results_df.style.format(precision=3), use_container_width=True)
+
+st.markdown("---")
+
+# --- 动态压力模拟区域 ---
+st.header(f"📈 动态压力模拟 ({unit_mode})")
+
+selected_vessel = st.selectbox("选择要观察的血管波形", vessel_labels)
+v_idx = list(vessel_labels).index(selected_vessel)
+
+# 模拟参数
+T = 0.8  
+fs = 200
+t = np.linspace(0, T, fs)
+dt = T / fs
+
+# 使用选中血管的流量和 RCR 参数 (半正弦波喷射模拟)
+ts = 0.3 * T
+Q_t = np.where(t < ts, (Q_mean_vessels[v_idx] * np.pi / (2*ts/T)) * np.sin(np.pi * t / ts), 0)
+
+P_sim = np.zeros(fs)
+P_sim[0] = Pd_pa
+for i in range(fs-1):
+    dp_dt = (Q_t[i]/C[v_idx]) - (P_sim[i] - Q_t[i]*R1[v_idx])/(R2[v_idx]*C[v_idx])
+    P_sim[i+1] = P_sim[i] + dp_dt * dt
+
+# 绘图时转回显示单位
+plot_df = pd.DataFrame({
+    "时间 (s)": t,
+    f"压力 ({unit_mode})": from_pa(P_sim)
+}).set_index("时间 (s)")
+
+col_chart, col_info = st.columns([2, 1])
+with col_chart:
+    st.line_chart(plot_df)
+with col_info:
+    st.write(f"**当前观察对象:** {selected_vessel}")
+    st.metric(f"模拟峰值压力 ({unit_mode})", f"{from_pa(np.max(P_sim)):.2f}")
+    st.metric(f"模拟舒张末压 ({unit_mode})", f"{from_pa(P_sim[-1]):.2f}")
+    st.write(f"**分支平均流量:** {Q_mean_vessels[idx]*1e6:.2f} cm³/s")
+
+# 下载功能
+csv = results_df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button("📥 下载全分支实验数据 (CSV)", csv, "windkessel_params.csv", "text/csv")
